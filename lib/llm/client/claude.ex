@@ -1,4 +1,4 @@
-defmodule ClaudeClient do
+defmodule Llm.Client.Claude do
   use HTTPoison.Base
 
   @base_url "https://api.anthropic.com"
