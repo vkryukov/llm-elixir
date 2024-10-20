@@ -1,9 +1,8 @@
-defmodule Llm.Client.Claude do
+defmodule Llm.Client.ChatGpt do
   use HTTPoison.Base
 
-  @base_url "https://api.anthropic.com"
-  @api_version "2023-06-01"
-  @default_model "claude-3-haiku-20240307"
+  @base_url "https://api.openai.com/v1"
+  @default_model "gpt-4o-mini"
   @default_max_tokens 1024
 
   def process_url(url) do
@@ -11,11 +10,10 @@ defmodule Llm.Client.Claude do
   end
 
   def process_request_headers(headers) do
-    api_key = System.get_env("ANTHROPIC_API_KEY")
+    api_key = System.get_env("OPENAI_API_KEY")
 
     [
-      {"X-API-Key", api_key},
-      {"anthropic-version", @api_version},
+      {"Authorization", "Bearer #{api_key}"},
       {"Content-Type", "application/json"}
       | headers
     ]
@@ -26,7 +24,7 @@ defmodule Llm.Client.Claude do
   end
 
   def chat(messages, opts \\ []) do
-    url = "/v1/messages"
+    url = "/chat/completions"
     model = opts |> Keyword.get(:model, @default_model) |> expand_model_name()
     max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
 
@@ -34,7 +32,7 @@ defmodule Llm.Client.Claude do
       Jason.encode!(%{
         model: model,
         messages: messages,
-        max_tokens: max_tokens
+        max_completion_tokens: max_tokens
       })
 
     case post(url, body) do
@@ -51,13 +49,9 @@ defmodule Llm.Client.Claude do
 
   defp expand_model_name(model) do
     case model do
-      "opus" -> "claude-3-opus-20240229"
-      "opus3" -> "claude-3-opus-20240229"
-      "sonnet" -> "claude-3-5-sonnet-20240620"
-      "sonnet35" -> "claude-3-5-sonnet-20240620"
-      "sonnet3" -> "claude-3-sonnet-20240229"
-      "haiku" -> "claude-3-haiku-20240307"
-      "haiku3" -> "claude-3-haiku-20240307"
+      "4o-mini" -> "gpt-4o-mini"
+      "4o" -> "gpt-4o"
+      "o1" -> "o1-preview"
       # Return the original input if no match is found
       _ -> model
     end
