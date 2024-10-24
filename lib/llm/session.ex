@@ -1,16 +1,23 @@
 defmodule Llm.Session do
   @moduledoc """
   Maintains stateful conversations with LLM services using Agents.
-  Tracks message history and handles communication with different LLM clients.
+  Tracks message history, responses, and associated costs from different LLM clients.
   """
 
   @type message :: %{role: String.t(), content: String.t()}
   @type history :: [message()]
   @type client :: module()
+  @type raw_response :: map()
+  @type interaction :: %{
+          messages: [message()],
+          response: raw_response,
+          cost: float()
+        }
   @type state :: %{
           client: client(),
           client_opts: keyword(),
-          history: history()
+          history: history(),
+          interactions: [interaction()]
         }
 
   @doc """
@@ -24,7 +31,8 @@ defmodule Llm.Session do
     initial_state = %{
       client: client,
       client_opts: opts,
-      history: []
+      history: [],
+      interactions: []
     }
 
     Agent.start_link(fn -> initial_state end)
@@ -33,6 +41,7 @@ defmodule Llm.Session do
   @doc """
   Sends a message to the LLM and receives a response.
   Updates the session history with both the user message and the assistant's response.
+  Also stores the raw response and calculated cost.
 
   ## Examples
       {:ok, response} = Llm.Session.send_message(pid, "What is the capital of France?")
@@ -58,8 +67,28 @@ defmodule Llm.Session do
             content: content
           }
 
-          # Update state with both messages
-          new_state = %{state | history: messages ++ [assistant_message]}
+          # Calculate cost
+          usage = state.client.extract_usage(response)
+
+          model =
+            get_in(state.client_opts, [:model]) ||
+              state.client.option_processors().model.(nil, %{}).model
+
+          cost = state.client.calculate_cost(model, usage)
+
+          # Create interaction record
+          interaction = %{
+            messages: [user_message, assistant_message],
+            response: response,
+            cost: cost
+          }
+
+          # Update state with new messages and interaction
+          new_state = %{
+            state
+            | history: messages ++ [assistant_message],
+              interactions: state.interactions ++ [interaction]
+          }
 
           {{:ok, content}, new_state}
 
@@ -81,6 +110,37 @@ defmodule Llm.Session do
   @spec get_history(pid()) :: history()
   def get_history(pid) when is_pid(pid) do
     Agent.get(pid, fn state -> state.history end)
+  end
+
+  @doc """
+  Gets the cost of the latest interaction.
+
+  ## Examples
+      {:ok, cost} = Llm.Session.get_latest_cost(pid)
+  """
+  @spec get_latest_cost(pid()) :: {:ok, float()} | {:error, :no_interactions}
+  def get_latest_cost(pid) when is_pid(pid) do
+    Agent.get(pid, fn state ->
+      case List.last(state.interactions) do
+        nil -> {:error, :no_interactions}
+        interaction -> {:ok, interaction.cost}
+      end
+    end)
+  end
+
+  @doc """
+  Gets the cumulative cost of all interactions in the session.
+
+  ## Examples
+      total_cost = Llm.Session.get_total_cost(pid)
+  """
+  @spec get_total_cost(pid()) :: float()
+  def get_total_cost(pid) when is_pid(pid) do
+    Agent.get(pid, fn state ->
+      state.interactions
+      |> Enum.map(& &1.cost)
+      |> Enum.sum()
+    end)
   end
 
   @doc """
