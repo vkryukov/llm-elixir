@@ -1,53 +1,41 @@
 defmodule Llm.Client.Claude do
-  use HTTPoison.Base
+  use Llm.Client.Behavior
+  alias Llm.Client.OptionHelpers, as: OH
 
   @base_url "https://api.anthropic.com"
   @api_version "2023-06-01"
   @default_model "claude-3-haiku-20240307"
   @default_max_tokens 1024
 
-  def process_url(url) do
-    @base_url <> url
-  end
+  @impl true
+  def base_url, do: @base_url
 
-  def process_request_headers(headers) do
+  @impl true
+  def request_headers do
     api_key = System.get_env("ANTHROPIC_API_KEY")
 
     [
       {"X-API-Key", api_key},
       {"anthropic-version", @api_version},
       {"Content-Type", "application/json"}
-      | headers
     ]
   end
 
-  def process_response_body(body) do
-    Jason.decode!(body)
+  @impl true
+  def option_processors do
+    %{
+      model:
+        OH.compose([
+          OH.set_default(:model, @default_model),
+          OH.transform_value(:model, &expand_model_name/1)
+        ]),
+      max_tokens: OH.set_default(:max_tokens, @default_max_tokens)
+      # No explicit system processor needed - it will be passed through as-is
+    }
   end
 
-  def chat(messages, opts \\ []) do
-    url = "/v1/messages"
-    model = opts |> Keyword.get(:model, @default_model) |> expand_model_name()
-    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
-
-    body =
-      Jason.encode!(%{
-        model: model,
-        messages: messages,
-        max_tokens: max_tokens
-      })
-
-    case post(url, body) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
-        {:ok, body}
-
-      {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
-        {:error, status_code, body}
-
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, reason}
-    end
-  end
+  @impl true
+  def request_endpoint, do: "/v1/messages"
 
   defp expand_model_name(model) do
     case model do
@@ -58,8 +46,8 @@ defmodule Llm.Client.Claude do
       "sonnet3" -> "claude-3-sonnet-20240229"
       "haiku" -> "claude-3-haiku-20240307"
       "haiku3" -> "claude-3-haiku-20240307"
-      # Return the original input if no match is found
       _ -> model
     end
   end
 end
+
