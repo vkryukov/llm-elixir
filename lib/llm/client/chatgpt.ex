@@ -40,7 +40,7 @@ defmodule Llm.Client.ChatGpt do
           system ->
             current_messages = Map.get(opts, :messages, [])
             system_message = [%{role: "system", content: system}]
-            Map.put(opts, :messages, system_message ++ current_messages)
+            Map.put(opts, :messages, system_message ++ current_messages) |> Map.delete(:system)
         end
       end
     }
@@ -55,4 +55,3 @@ defmodule Llm.Client.ChatGpt do
     end
   end
 end
-
