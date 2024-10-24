@@ -1,9 +1,9 @@
 defmodule Llm.Client.Behavior do
+  @moduledoc false
+
   @callback base_url() :: String.t()
   @callback request_headers() :: [{String.t(), String.t()}]
   @callback option_processors() :: %{atom() => (term(), map() -> map())}
-  @callback request_endpoint() :: String.t()
-  @optional_callback request_endpoint: 0
 
   defmacro __using__(_opts) do
     quote do
@@ -19,6 +19,10 @@ defmodule Llm.Client.Behavior do
       def process_response_body(body) do
         Jason.decode!(body)
       end
+
+      # Default implementation that can be overridden
+      def request_endpoint, do: "/chat/completions"
+      defoverridable request_endpoint: 0
 
       def chat(messages, opts \\ []) do
         # Convert initial opts to map with messages
@@ -48,8 +52,6 @@ defmodule Llm.Client.Behavior do
             {:error, reason}
         end
       end
-
-      def request_endpoint, do: "/chat/completions"
     end
   end
 end

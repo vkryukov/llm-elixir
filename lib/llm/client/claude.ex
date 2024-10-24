@@ -34,7 +34,6 @@ defmodule Llm.Client.Claude do
     }
   end
 
-  @impl true
   def request_endpoint, do: "/v1/messages"
 
   defp expand_model_name(model) do
