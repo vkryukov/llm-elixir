@@ -46,6 +46,14 @@ defmodule Llm.Client.ChatGpt do
     }
   end
 
+  @impl true
+  def extract_response(response) do
+    case response do
+      %{"choices" => [%{"message" => %{"content" => content}} | _]} -> content
+      _ -> raise "Unexpected response format from ChatGPT API"
+    end
+  end
+
   defp expand_model_name(model) do
     case model do
       "4o-mini" -> "gpt-4o-mini"

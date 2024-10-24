@@ -4,6 +4,7 @@ defmodule Llm.Client.Behavior do
   @callback base_url() :: String.t()
   @callback request_headers() :: [{String.t(), String.t()}]
   @callback option_processors() :: %{atom() => (term(), map() -> map())}
+  @callback extract_response(map()) :: String.t()
 
   defmacro __using__(_opts) do
     quote do

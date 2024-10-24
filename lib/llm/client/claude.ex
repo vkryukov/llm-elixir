@@ -34,6 +34,14 @@ defmodule Llm.Client.Claude do
     }
   end
 
+  @impl true
+  def extract_response(response) do
+    case response do
+      %{"content" => [%{"text" => text} | _]} -> text
+      _ -> raise "Unexpected response format from Claude API"
+    end
+  end
+
   def request_endpoint, do: "/v1/messages"
 
   defp expand_model_name(model) do
@@ -49,4 +57,3 @@ defmodule Llm.Client.Claude do
     end
   end
 end
-
