@@ -54,6 +54,26 @@ defmodule Llm.Client.ChatGpt do
     end
   end
 
+  @impl true
+  def extract_usage(response) do
+    case response do
+      %{"usage" => %{"prompt_tokens" => input, "completion_tokens" => output}} ->
+        %{input_tokens: input, output_tokens: output}
+
+      _ ->
+        raise "Unable to extract token usage from ChatGPT API response"
+    end
+  end
+
+  @impl true
+  def pricing_table do
+    %{
+      "gpt-4o" => %{input: 2.50, output: 10.00},
+      "gpt-4o-mini" => %{input: 0.15, output: 0.60},
+      "o1-preview" => %{input: 15.00, output: 60.00}
+    }
+  end
+
   defp expand_model_name(model) do
     case model do
       "4o-mini" -> "gpt-4o-mini"
