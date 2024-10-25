@@ -31,7 +31,7 @@ defmodule Llm.Interactive do
   """
   @spec start([model_config()] | model_config()) :: :ok
   def start(configs) when is_list(configs) do
-    sessions = init_sessions(List.wrap(configs))
+    sessions = init_sessions(configs)
     display = Display.new()
 
     Display.display_labeled(
@@ -103,7 +103,7 @@ defmodule Llm.Interactive do
 
           _ ->
             responses = get_all_responses(sessions, input)
-            display_responses(responses, display)
+            display_responses(responses)
             display_costs(responses, display)
             chat_loop(sessions, display)
         end
@@ -117,7 +117,7 @@ defmodule Llm.Interactive do
     end)
   end
 
-  defp display_responses(responses, display) do
+  defp display_responses(responses) do
     Enum.each(responses, fn {session, response} ->
       colors = Display.new(%{text: session.color})
 
