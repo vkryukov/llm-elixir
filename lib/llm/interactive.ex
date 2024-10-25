@@ -1,122 +1,209 @@
 defmodule Llm.Interactive do
   @moduledoc """
-  Provides an interactive chat interface for LLM sessions.
-  Handles user input, displays responses, and tracks costs.
+  Provides an interactive chat interface for comparing multiple LLM sessions.
+  Handles user input, displays responses from different models, and tracks costs.
   """
 
   @prompt "> "
-  @assistant_color IO.ANSI.cyan()
-  @cost_color IO.ANSI.yellow()
+  @cost_label_color IO.ANSI.yellow()
   @reset IO.ANSI.reset()
-  @line_width 100
+
+  # Define a list of colors for different models
+  @model_colors [
+    IO.ANSI.cyan(),
+    IO.ANSI.green(),
+    IO.ANSI.magenta(),
+    IO.ANSI.blue(),
+    IO.ANSI.light_cyan(),
+    IO.ANSI.light_green()
+  ]
+
+  @type model_config :: module() | [module() | keyword()]
+  @type session_info :: %{
+          pid: pid(),
+          name: String.t(),
+          color: String.t(),
+          config: keyword()
+        }
 
   @doc """
-  Starts a new interactive chat session with the specified LLM client and options.
+  Starts a new interactive chat session with multiple LLM clients.
+  Each client can be specified either as a module or as a list containing the module and options.
 
   ## Examples
-      Llm.Interactive.start(Llm.Client.Claude)
-      Llm.Interactive.start(Llm.Client.Claude, max_tokens: 2048)
+      Llm.Interactive.start([Llm.Client.Claude, model: "opus"], 
+                          Llm.Client.ChatGpt, 
+                          [Llm.Client.Claude, model: "haiku"])
   """
-  @spec start(module(), keyword()) :: :ok
-  def start(client, opts \\ []) do
-    {:ok, pid} = Llm.Session.start_link(client, opts)
+  @spec start([model_config()] | model_config()) :: :ok
+  def start(configs) when is_list(configs) do
+    sessions = init_sessions(List.wrap(configs))
+    IO.puts("\nChat session started with #{length(sessions)} models.")
+    IO.puts("Type your messages and press Enter. Type /quit to exit.\n")
+    chat_loop(sessions)
+  end
 
-    IO.puts(
-      "Chat session started. Type your messages and press Enter. Press Ctrl+C twice to exit.\n"
-    )
+  def start(config), do: start([config])
 
-    chat_loop(pid)
+  @doc """
+  Initializes sessions for each model configuration.
+  """
+  @spec init_sessions([model_config()]) :: [session_info()]
+  defp init_sessions(configs) do
+    configs
+    |> Enum.with_index()
+    |> Enum.map(fn {config, index} ->
+      {module, opts} = parse_config(config)
+      {:ok, pid} = Llm.Session.start_link(module, opts)
+
+      %{
+        pid: pid,
+        name: get_model_name(module, opts),
+        color: Enum.at(@model_colors, index, List.last(@model_colors)),
+        config: opts
+      }
+    end)
   end
 
   @doc """
-  Maintains the chat loop, processing user input and displaying responses.
+  Parses a model configuration into a tuple of {module, opts}.
   """
-  @spec chat_loop(pid()) :: :ok
-  defp chat_loop(pid) do
+  @spec parse_config(model_config()) :: {module(), keyword()}
+  defp parse_config(config) when is_atom(config), do: {config, []}
+  defp parse_config([module | opts]) when is_atom(module), do: {module, opts}
+
+  @doc """
+  Generates a display name for the model based on its configuration.
+  """
+  @spec get_model_name(module(), keyword()) :: String.t()
+  defp get_model_name(module, opts) do
+    base_name = module |> Module.split() |> List.last()
+    model = opts[:model]
+    if model, do: "#{base_name}(#{model})", else: base_name
+  end
+
+  @doc """
+  Maintains the chat loop, processing user input and displaying responses from all models.
+  """
+  @spec chat_loop([session_info()]) :: :ok
+  defp chat_loop(sessions) do
     IO.write(@prompt)
 
     case IO.gets("") do
       :eof ->
+        cleanup_sessions(sessions)
         IO.puts("\nChat session ended.")
-        Llm.Session.stop(pid)
-        :ok
 
       {:error, reason} ->
         IO.puts("\nError: #{inspect(reason)}")
-        Llm.Session.stop(pid)
-        :ok
+        cleanup_sessions(sessions)
 
       input ->
         input = String.trim(input)
 
         case input do
           "" ->
-            chat_loop(pid)
+            chat_loop(sessions)
 
           "/quit" ->
+            cleanup_sessions(sessions)
             IO.puts("\nChat session ended.")
-            Llm.Session.stop(pid)
-            :ok
 
           _ ->
-            case Llm.Session.send_message(pid, input) do
-              {:ok, response} ->
-                # Print the response with formatting
-                IO.puts("\n#{@assistant_color}#{format_response(response)}#{@reset}\n")
-
-                # Get and display costs
-                {:ok, latest_cost} = Llm.Session.get_latest_cost(pid)
-                total_cost = Llm.Session.get_total_cost(pid)
-
-                IO.puts(
-                  "#{@cost_color}Last response cost: #{format_cost(latest_cost)} | " <>
-                    "Total session cost: #{format_cost(total_cost)}#{@reset}\n"
-                )
-
-                chat_loop(pid)
-
-              {:error, reason} ->
-                IO.puts("\nError: #{inspect(reason)}")
-                chat_loop(pid)
-            end
+            responses = get_all_responses(sessions, input)
+            display_responses(responses)
+            display_costs(responses)
+            chat_loop(sessions)
         end
     end
   end
 
   @doc """
-  Formats the response text by wrapping long lines and adding proper indentation.
+  Gets responses from all models for the given input.
   """
-  @spec format_response(String.t()) :: String.t()
+  @spec get_all_responses([session_info()], String.t()) :: [
+          {session_info(), {:ok, String.t()} | {:error, term()}}
+        ]
+  defp get_all_responses(sessions, input) do
+    Enum.map(sessions, fn session ->
+      response = Llm.Session.send_message(session.pid, input)
+      {session, response}
+    end)
+  end
+
+  @doc """
+  Displays responses from all models with appropriate formatting and colors.
+  """
+  @spec display_responses([{session_info(), {:ok, String.t()} | {:error, term()}}]) :: :ok
+  defp display_responses(responses) do
+    IO.puts("")
+
+    Enum.each(responses, fn {session, response} ->
+      case response do
+        {:ok, content} ->
+          IO.puts("#{session.color}[#{session.name}]#{@reset}")
+          IO.puts("#{session.color}#{format_response(content)}#{@reset}")
+          IO.puts("")
+
+        {:error, reason} ->
+          IO.puts("#{session.color}[#{session.name}] Error: #{inspect(reason)}#{@reset}\n")
+      end
+    end)
+  end
+
+  @doc """
+  Displays costs for all models using their respective colors.
+  """
+  @spec display_costs([{session_info(), {:ok, String.t()} | {:error, term()}}]) :: :ok
+  defp display_costs(responses) do
+    IO.puts("#{@cost_label_color}Cost breakdown:#{@reset}")
+
+    Enum.each(responses, fn {session, _} ->
+      case Llm.Session.get_latest_cost(session.pid) do
+        {:ok, latest_cost} ->
+          total_cost = Llm.Session.get_total_cost(session.pid)
+
+          IO.puts(
+            "#{session.color}[#{session.name}] Last: #{format_cost(latest_cost)} | " <>
+              "Total: #{format_cost(total_cost)}#{@reset}"
+          )
+
+        _ ->
+          IO.puts("#{session.color}[#{session.name}] Cost calculation error#{@reset}")
+      end
+    end)
+
+    IO.puts("")
+  end
+
+  @doc """
+  Cleans up all active sessions.
+  """
+  @spec cleanup_sessions([session_info()]) :: :ok
+  defp cleanup_sessions(sessions) do
+    Enum.each(sessions, fn session -> Llm.Session.stop(session.pid) end)
+  end
+
+  # Text formatting helpers remain the same as in the previous version
   defp format_response(text) do
-    # Split text into paragraphs and wrap each one
     text
     |> String.split("\n\n")
     |> Enum.map(&wrap_text/1)
     |> Enum.join("\n\n")
   end
 
-  @doc """
-  Wraps text at @line_width characters while preserving existing line breaks and indentation.
-  """
-  @spec wrap_text(String.t()) :: String.t()
   defp wrap_text(text) do
     text
     |> String.split("\n")
     |> Enum.map(fn line ->
-      # Preserve leading whitespace
       {indent, content} = extract_indent(line)
-      wrapped = wrap_line(content, @line_width - String.length(indent))
+      wrapped = wrap_line(content, 80 - String.length(indent))
       Enum.map(wrapped, &(indent <> &1))
     end)
     |> List.flatten()
     |> Enum.join("\n")
   end
 
-  @doc """
-  Extracts leading whitespace from a line of text.
-  Returns a tuple of {indent, content}.
-  """
-  @spec extract_indent(String.t()) :: {String.t(), String.t()}
   defp extract_indent(line) do
     case Regex.run(~r/^(\s*)(.*)$/, line) do
       [_, indent, content] -> {indent, content}
@@ -124,10 +211,6 @@ defmodule Llm.Interactive do
     end
   end
 
-  @doc """
-  Wraps a single line of text at the specified width.
-  """
-  @spec wrap_line(String.t(), pos_integer()) :: [String.t()]
   defp wrap_line(text, width) do
     words = String.split(text, " ")
     wrap_words(words, width, [], "")
@@ -147,17 +230,9 @@ defmodule Llm.Interactive do
     end
   end
 
-  @doc """
-  Formats a cost value in dollars to a human-readable string with cents.
-  """
-  @spec format_cost(float()) :: String.t()
   defp format_cost(cost) do
     cents = round(cost * 100)
-
-    if cents == 0 do
-      "0¢"
-    else
-      "#{cents}¢"
-    end
+    if cents == 0, do: "0¢", else: "#{cents}¢"
   end
 end
+
