@@ -37,6 +37,16 @@ defmodule Llm.Client.Behavior do
       def request_endpoint, do: "/chat/completions"
       defoverridable request_endpoint: 0
 
+      def process_options(opts) do
+        opts_map = Map.new(opts)
+
+        option_processors()
+        |> Enum.reduce(opts_map, fn {key, processor}, acc ->
+          value = Map.get(acc, key)
+          processor.(value, acc)
+        end)
+      end
+
       def calculate_cost(model, usage) do
         pricing = pricing_table()[model]
 
@@ -54,18 +64,10 @@ defmodule Llm.Client.Behavior do
         # Convert initial opts to map with messages
         initial_opts =
           opts
-          |> Map.new()
+          |> process_options()
           |> Map.put(:messages, messages)
 
-        # Process all options through processors
-        processed_opts =
-          option_processors()
-          |> Enum.reduce(initial_opts, fn {key, processor}, acc ->
-            value = Map.get(acc, key)
-            processor.(value, acc)
-          end)
-
-        body = Jason.encode!(processed_opts)
+        body = Jason.encode!(initial_opts)
 
         case post(request_endpoint(), body) do
           {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
@@ -81,3 +83,4 @@ defmodule Llm.Client.Behavior do
     end
   end
 end
+

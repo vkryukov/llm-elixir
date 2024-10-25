@@ -28,9 +28,11 @@ defmodule Llm.Session do
   """
   @spec start_link(client(), keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(client, opts \\ []) when is_atom(client) and is_list(opts) do
+    processed_opts = client.process_options(opts)
+
     initial_state = %{
       client: client,
-      client_opts: opts,
+      client_opts: processed_opts,
       history: [],
       interactions: []
     }
@@ -67,13 +69,9 @@ defmodule Llm.Session do
             content: content
           }
 
-          # Calculate cost
+          # Calculate cost using the processed model name from state
           usage = state.client.extract_usage(response)
-
-          model =
-            get_in(state.client_opts, [:model]) ||
-              state.client.option_processors().model.(nil, %{}).model
-
+          model = Map.get(state.client_opts, :model)
           cost = state.client.calculate_cost(model, usage)
 
           # Create interaction record
