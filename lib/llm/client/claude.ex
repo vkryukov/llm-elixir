@@ -66,7 +66,7 @@ defmodule Llm.Client.Claude do
   defp expand_model_name(model) do
     case model do
       "opus" -> "claude-3-opus-20240229"
-      "sonnet" -> "claude-3-5-sonnet-20240620"
+      "sonnet" -> "claude-3-5-sonnet-20241022"
       "haiku" -> "claude-3-haiku-20240307"
       _ -> model
     end
