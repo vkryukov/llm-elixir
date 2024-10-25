@@ -22,7 +22,7 @@ defmodule Llm.Interactive do
   @type session_info :: %{
           pid: pid(),
           name: String.t(),
-          color: String.t(),
+          display: Display.color_scheme(),
           config: keyword()
         }
 
@@ -58,11 +58,12 @@ defmodule Llm.Interactive do
     |> Enum.map(fn {config, index} ->
       {module, opts} = parse_config(config)
       {:ok, pid} = Llm.Session.start_link(module, opts)
+      color = Enum.at(@model_colors, index, List.last(@model_colors))
 
       %{
         pid: pid,
         name: get_model_name(module, opts),
-        color: Enum.at(@model_colors, index, List.last(@model_colors)),
+        display: Display.new(%{text: color, label: color}),
         config: opts
       }
     end)
@@ -119,32 +120,28 @@ defmodule Llm.Interactive do
 
   defp display_responses(responses) do
     Enum.each(responses, fn {session, response} ->
-      colors = Display.new(%{text: session.color})
-
       case response do
         {:ok, content} ->
-          Display.display_block(session.name, content, colors)
+          Display.display_block(session.name, content, session.display)
 
         {:error, reason} ->
-          Display.display_error(session.name, reason, colors)
+          Display.display_error(session.name, reason, session.display)
       end
     end)
   end
 
-  defp display_costs(responses, display) do
-    Display.display_labeled("Costs", "", display)
+  defp display_costs(responses, system_display) do
+    Display.display_labeled("Costs", "", system_display)
 
     Enum.each(responses, fn {session, _} ->
-      colors = Display.new(%{text: session.color})
-
       case Llm.Session.get_latest_cost(session.pid) do
         {:ok, latest_cost} ->
           total_cost = Llm.Session.get_total_cost(session.pid)
           cost_text = "Last: #{format_cost(latest_cost)} | Total: #{format_cost(total_cost)}"
-          Display.display_labeled(session.name, cost_text, colors)
+          Display.display_labeled(session.name, cost_text, session.display)
 
         _ ->
-          Display.display_error(session.name, "Cost calculation error", colors)
+          Display.display_error(session.name, "Cost calculation error", session.display)
       end
     end)
 
