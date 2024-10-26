@@ -71,4 +71,20 @@ defmodule Llm.Client.Claude do
       _ -> model
     end
   end
+
+  @impl true
+  def display_name(opts) do
+    model = Keyword.get(opts, :model, @default_model)
+
+    # Extract just the model variant for cleaner display
+    model_variant =
+      case model do
+        "claude-3-opus-20240229" -> "opus"
+        "claude-3-5-sonnet-20241022" -> "sonnet"
+        "claude-3-haiku-20240307" -> "haiku"
+        _ -> model
+      end
+
+    "Claude(#{model_variant})"
+  end
 end

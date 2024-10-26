@@ -4,9 +4,10 @@ defmodule Llm.Session do
   Tracks message history, responses, and associated costs from different LLM clients.
   """
 
+  alias Llm.Client
+
   @type message :: %{role: String.t(), content: String.t()}
   @type history :: [message()]
-  @type client :: module()
   @type raw_response :: map()
   @type interaction :: %{
           messages: [message()],
@@ -14,8 +15,7 @@ defmodule Llm.Session do
           cost: float()
         }
   @type state :: %{
-          client: client(),
-          client_opts: keyword(),
+          client: Client.t(),
           history: history(),
           interactions: [interaction()]
         }
@@ -26,13 +26,10 @@ defmodule Llm.Session do
   ## Examples
       {:ok, pid} = Llm.Session.start_link(Llm.Client.Claude, max_tokens: 2048)
   """
-  @spec start_link(client(), keyword()) :: {:ok, pid()} | {:error, term()}
-  def start_link(client, opts \\ []) when is_atom(client) and is_list(opts) do
-    processed_opts = client.process_options(opts)
-
+  @spec start_link(Client.t()) :: {:ok, pid()} | {:error, term()}
+  def start_link(client) when is_struct(client, Client) do
     initial_state = %{
       client: client,
-      client_opts: processed_opts,
       history: [],
       interactions: []
     }
@@ -51,14 +48,18 @@ defmodule Llm.Session do
   @spec send_message(pid(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def send_message(pid, content) when is_pid(pid) and is_binary(content) do
     Agent.get_and_update(pid, fn state ->
+      IO.inspect("session:51: state's opts: #{inspect(state)}")
       # Create user message
       user_message = %{role: "user", content: content}
 
       # Get full message history including the new message
       messages = state.history ++ [user_message]
+      result = Client.chat(state.client, messages)
+
+      IO.puts("session:58: result: #{inspect(result)}")
 
       # Send to LLM client
-      case state.client.chat(messages, state.client_opts) do
+      case Client.chat(state.client, messages) do
         {:ok, response} ->
           # Extract response content using client-specific extractor
           content = state.client.extract_response(response)
@@ -152,4 +153,3 @@ defmodule Llm.Session do
     Agent.stop(pid)
   end
 end
-

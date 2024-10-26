@@ -17,6 +17,7 @@ defmodule Llm.Client.Behavior do
   @callback extract_response(map()) :: String.t()
   @callback extract_usage(map()) :: token_usage()
   @callback pricing_table() :: %{String.t() => pricing()}
+  @callback display_name(keyword()) :: String.t()
 
   defmacro __using__(_opts) do
     quote do

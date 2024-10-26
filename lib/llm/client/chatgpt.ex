@@ -82,4 +82,20 @@ defmodule Llm.Client.ChatGpt do
       _ -> model
     end
   end
+
+  @impl true
+  def display_name(opts) do
+    model = Keyword.get(opts, :model, @default_model)
+
+    # Extract just the model variant for cleaner display
+    model_variant =
+      case model do
+        "gpt-4o-mini" -> "4o-mini"
+        "gpt-40" -> "4o"
+        "o1-preview" -> "o1"
+        _ -> model
+      end
+
+    "ChatGPT(#{model_variant})"
+  end
 end

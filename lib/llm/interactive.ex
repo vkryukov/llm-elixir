@@ -5,6 +5,7 @@ defmodule Llm.Interactive do
   """
 
   alias Llm.Display
+  alias Llm.Client
 
   @prompt "> "
 
@@ -18,18 +19,29 @@ defmodule Llm.Interactive do
     IO.ANSI.light_green()
   ]
 
-  @type model_config :: module() | [module() | keyword()]
+  @type client_config :: module() | {module(), keyword()}
   @type session_info :: %{
           pid: pid(),
-          name: String.t(),
-          display: Display.color_scheme(),
-          config: keyword()
+          client: Client.t(),
+          display: Display.color_scheme()
         }
 
   @doc """
   Starts a new interactive chat session with multiple LLM clients.
+  Accepts either module names or {module, options} tuples.
+
+  ## Examples
+      # Single client with default options
+      Interactive.start(Llm.Client.Claude)
+
+      # Multiple clients with mixed configurations
+      Interactive.start([
+        Llm.Client.Claude,
+        {Llm.Client.Claude, [model: "opus", temperature: 0.7]},
+        {Llm.Client.ChatGpt, [model: "4o"]}
+      ])
   """
-  @spec start([model_config()] | model_config()) :: :ok
+  @spec start([client_config()] | client_config()) :: :ok
   def start(configs) when is_list(configs) do
     sessions = init_sessions(configs)
     display = Display.new()
@@ -56,27 +68,20 @@ defmodule Llm.Interactive do
     configs
     |> Enum.with_index()
     |> Enum.map(fn {config, index} ->
-      {module, opts} = parse_config(config)
-      {:ok, pid} = Llm.Session.start_link(module, opts)
+      client = create_client(config)
+      {:ok, pid} = Llm.Session.start_link(client)
       color = Enum.at(@model_colors, index, List.last(@model_colors))
 
       %{
         pid: pid,
-        name: get_model_name(module, opts),
-        display: Display.new(%{text: color, label: color}),
-        config: opts
+        client: client,
+        display: Display.new(%{text: color, label: color})
       }
     end)
   end
 
-  defp parse_config(config) when is_atom(config), do: {config, []}
-  defp parse_config([module | opts]) when is_atom(module), do: {module, opts}
-
-  defp get_model_name(module, opts) do
-    base_name = module |> Module.split() |> List.last()
-    model = opts[:model]
-    if model, do: "#{base_name}(#{model})", else: base_name
-  end
+  defp create_client(module) when is_atom(module), do: Client.new(module)
+  defp create_client({module, opts}) when is_atom(module), do: Client.new(module, opts)
 
   # Chat loop and response handling
   defp chat_loop(sessions, display) do
@@ -120,12 +125,14 @@ defmodule Llm.Interactive do
 
   defp display_responses(responses) do
     Enum.each(responses, fn {session, response} ->
+      name = Client.display_name(session.client)
+
       case response do
         {:ok, content} ->
-          Display.display_block(session.name, content, session.display)
+          Display.display_block(name, content, session.display)
 
         {:error, reason} ->
-          Display.display_error(session.name, reason, session.display)
+          Display.display_error(name, reason, session.display)
       end
     end)
   end
@@ -134,14 +141,16 @@ defmodule Llm.Interactive do
     Display.display_labeled("Costs", "", system_display)
 
     Enum.each(responses, fn {session, _} ->
+      name = Client.display_name(session.client)
+
       case Llm.Session.get_latest_cost(session.pid) do
         {:ok, latest_cost} ->
           total_cost = Llm.Session.get_total_cost(session.pid)
           cost_text = "Last: #{format_cost(latest_cost)} | Total: #{format_cost(total_cost)}"
-          Display.display_labeled(session.name, cost_text, session.display)
+          Display.display_labeled(name, cost_text, session.display)
 
         _ ->
-          Display.display_error(session.name, "Cost calculation error", session.display)
+          Display.display_error(name, "Cost calculation error", session.display)
       end
     end)
 
